@@ -1,5 +1,6 @@
 import uuid
 import struct
+import logging
 from datetime import datetime, timedelta
 import locale
 
@@ -509,7 +510,11 @@ class JCID:
         0x00020044: "jcidRevisionMetaData",
         0x00020046: "jcidVersionHistoryMetaData",
         0x0012004D: "jcidParagraphStyleObject",
-        0x0012004D: "jcidParagraphStyleObjectForText"
+        0x0012004D: "jcidParagraphStyleObjectForText",
+        0x00060014: "jcidInkContainer",
+        0x0002003B: "jcidInkLineNode",
+        0x00020047: "jcidInkParagraphNode",
+        0x00120048: "jcidInkWordNode"
     }
 
     def __init__(self, file):
@@ -579,6 +584,7 @@ class ObjectSpaceObjectStreamOfIDs:
         res = None
         if self.head < len(self.body):
             res = self.body[self.head]
+            self.head += 1
         return res
 
     def reset(self):
@@ -646,7 +652,11 @@ class PropertySet:
             elif type == 0x11:
                 self.rgData.append(PropertySet(file, OIDs, OSIDs, ContextIDs, document))
             else:
-                raise ValueError('rgPrids[i].type is not valid')
+                logging.getLogger("pyOneNote").warning(
+                    "Unknown property type 0x%x for property 0x%08x at offset %d, skipping",
+                    type, self.rgPrids[i].value, file.tell()
+                )
+                self.rgData.append(None)
 
     @staticmethod
     def get_compact_ids(stream_of_context_ids, count):
@@ -912,6 +922,13 @@ class PropertyID:
         0x1C001E20: "WzHyperlinkUrl",
         0x1400346B: "TaskTagDueDate",
         0x1C001DE9: "IsDeletedGraphSpaceContent",
+        0x1C003415: "InkData",
+        0x1C00340B: "InkPath",
+        0x24003416: "InkStrokes",
+        0x14003417: "InkBrushColor",
+        0x14003418: "InkBrushWidth",
+        0x14003419: "InkBrushHeight",
+        0x0800341A: "InkBrushTransparency",
     }
 
     def __init__(self, file):
