@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import locale
 
 DEBUG = False
+MAX_READ_SIZE = 256 * 1024 * 1024  # 256 MB sanity limit for any single read
+MAX_ARRAY_COUNT = 100000  # sanity limit for array element counts
 
 
 class FileNodeListHeader:
@@ -36,7 +38,13 @@ class FileNodeListFragment:
 
         # FileNodeListFragment can have one or more FileNode
         while file.tell() + 24 < end:
-            node = FileNode(file, document)
+            try:
+                node = FileNode(file, document)
+            except Exception:
+                logging.getLogger("pyOneNote").warning(
+                    "Failed to parse FileNode at offset %d, skipping rest of fragment", file.tell()
+                )
+                break
             self.fileNodes.append(node)
             if node.file_node_header.file_node_id == 255 or node.file_node_header.file_node_id == 0:
                 break
@@ -142,7 +150,13 @@ class FileNode:
             current_offset = file.tell()
             if self.data.body.jcid.IsPropertySet:
                 file.seek(self.data.ref.stp)
-                self.propertySet = ObjectSpaceObjectPropSet(file, document)
+                try:
+                    self.propertySet = ObjectSpaceObjectPropSet(file, document)
+                except Exception:
+                    logging.getLogger("pyOneNote").warning(
+                        "Failed to parse PropertySet for object %s (jcid %s) at offset %d, skipping",
+                        self.data.body.oid, self.data.body.jcid, self.data.ref.stp
+                    )
             file.seek(current_offset)
         elif self.file_node_header.file_node_type == "ReadOnlyObjectDeclaration2LargeRefCountFND":
             self.data = ReadOnlyObjectDeclaration2LargeRefCountFND(file, self.document, self.file_node_header)
@@ -550,6 +564,8 @@ class StringInStorageBuffer:
 class FileDataStoreObject:
     def __init__(self, file, fileNodeChunkReference):
         self.guidHeader, self.cbLength, self.unused, self.reserved = struct.unpack('<16sQ4s8s', file.read(36))
+        if self.cbLength > MAX_READ_SIZE:
+            raise ValueError(f'File data size {self.cbLength} exceeds sanity limit')
         self.FileData, = struct.unpack('{}s'.format(self.cbLength), file.read(self.cbLength))
         file.seek(fileNodeChunkReference.stp + fileNodeChunkReference.cb - 16)
         self.guidFooter, = struct.unpack('16s', file.read(16))
@@ -632,19 +648,27 @@ class PropertySet:
                 count = 1
                 if type == 0x09:
                     count, = struct.unpack('<I', file.read(4))
+                    if count > MAX_ARRAY_COUNT:
+                        raise ValueError(f'OID array count {count} exceeds sanity limit')
                 self.rgData.append(self.get_compact_ids(OIDs, count))
             elif type == 0xA or type == 0x0B:
                 count = 1
                 if type == 0x0B:
                     count, = struct.unpack('<I', file.read(4))
+                    if count > MAX_ARRAY_COUNT:
+                        raise ValueError(f'OSID array count {count} exceeds sanity limit')
                 self.rgData.append(self.get_compact_ids(OSIDs, count))
             elif type == 0xC or type == 0x0D:
                 count = 1
                 if type == 0x0D:
                     count, = struct.unpack('<I', file.read(4))
+                    if count > MAX_ARRAY_COUNT:
+                        raise ValueError(f'ContextID array count {count} exceeds sanity limit')
                 self.rgData.append(self.get_compact_ids(ContextIDs, count))
             elif type == 0x10:
                 count, = struct.unpack('<I', file.read(4))
+                if count > MAX_ARRAY_COUNT:
+                    raise ValueError(f'PropertySet array count {count} exceeds sanity limit')
                 arr = []
                 for _ in range(count):
                     arr.append(PropertySet(file, OIDs, OSIDs, ContextIDs, document))
@@ -772,6 +796,8 @@ class PropertySet:
 class PrtFourBytesOfLengthFollowedByData:
     def __init__(self, file, propertySet):
         self.cb, = struct.unpack('<I', file.read(4))
+        if self.cb > MAX_READ_SIZE:
+            raise ValueError(f'Property data size {self.cb} exceeds sanity limit')
         self.Data, = struct.unpack('{}s'.format(self.cb), file.read(self.cb))
 
     def __str__(self):
