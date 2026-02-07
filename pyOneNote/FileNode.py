@@ -175,10 +175,10 @@ class FileNode:
             # no data part
             self.data = None
         else:
-            p = 1
+            self.data = None
 
         current_offset = file.tell()
-        if self.file_node_header.baseType == 2:
+        if self.file_node_header.baseType == 2 and self.data is not None:
             self.children.append(FileNodeList(file, self.document, self.data.ref))
         file.seek(current_offset)
 
@@ -661,6 +661,8 @@ class PropertySet:
     @staticmethod
     def get_compact_ids(stream_of_context_ids, count):
         data = []
+        if stream_of_context_ids is None:
+            return data
         for i in range(count):
             data.append(stream_of_context_ids.read())
         return data

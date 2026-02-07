@@ -69,8 +69,9 @@ class OneDocment:
     def get_json(self):
         files_in_hex = {}
         for key, file in self.get_files().items():
+            content = file['content']
             files_in_hex[key] = {'extension': file['extension'],
-                                 'content': file['content'].hex(),
+                                 'content': content.hex() if isinstance(content, bytes) else '',
                                  'identity': file['identity']}
 
         res = {
